@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PlagiaCheck – AI Plagiarism Checker</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js" defer></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>❇️ PlagiaCheck</h1>
+            <p>AI-Powered Plagiarism Detection Tool</p>
+        </header>
+
+        <main>
+            <div class="corpus-section">
+                <h2>Corpus Management</h2>
+                <p>Add documents to the reference corpus for checking against.</p>
+                <input type="file" id="corpusFileInput">
+                <button id="addCorpusBtn" class="button">Add to Corpus</button>
+                 <div id="corpusMessage" class="message"></div>
+            </div>
+
+            <div class="checker-section">
+                <h2>Check Your Document</h2>
+                <form id="plagiarismForm">
+                    <textarea id="textInput" placeholder="Paste your text here..." rows="10"></textarea>
+                    <div class="or-separator">OR</div>
+                    <input type="file" id="fileInput" accept=".txt,.pdf,.docx">
+                    <button type="submit" class="button primary-button">Check for Plagiarism</button>
+                </form>
+            </div>
+            
+            <div id="resultsSection" class="results-section hidden">
+                <h2>Analysis Results</h2>
+                <div class="summary">
+                    <div class="chart-container">
+                        <canvas id="plagiarismChart"></canvas>
+                    </div>
+                    <div id="highlightedText" class="highlighted-text"></div>
+                </div>
+                <h3>Detailed Breakdown</h3>
+                <div id="detailsContainer" class="details-container">
+                    <p>No plagiarized sections found.</p>
+                </div>
+            </div>
+
+            <div id="loading" class="loading hidden">
+                <div class="spinner"></div>
+                <p>Analyzing... This may take a moment.</p>
+            </div>
+             <div id="errorMessage" class="message error hidden"></div>
+        </main>
+    </div>
+    <script src="script.js" defer></script>
+</body>
+</html>

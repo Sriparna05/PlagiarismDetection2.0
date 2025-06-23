@@ -1,0 +1,8 @@
+Flask
+flask_cors
+spacy
+sentence-transformers
+chromadb
+pypdf
+python-docx
+numpy
