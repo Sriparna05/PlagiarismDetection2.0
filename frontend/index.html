@@ -32,7 +32,8 @@
                         <span id="fileName" class="file-name"></span>
                     </div>
                 </div>
-                <button id="checkButton" class="button primary-button">Analyze Content</button>
+                <!-- THE FIX IS HERE: type="button" is added -->
+                <button id="checkButton" class="button primary-button" type="button">Analyze Content</button>
             </div>
             
             <div id="loading" class="loading-state hidden">
@@ -58,7 +59,7 @@
                         <p>No potential plagiarism detected.</p>
                     </div>
                 </div>
-                 <button id="resetButton" class="button secondary-button">Check Another Document</button>
+                 <button id="resetButton" class="button secondary-button" type="button">Check Another Document</button>
             </div>
 
              <div id="errorMessage" class="message error hidden"></div>
