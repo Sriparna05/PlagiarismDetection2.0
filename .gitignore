@@ -1,0 +1,14 @@
+# Node dependencies
+/backend/node_modules/
+/backend/uploads/
+
+# Python virtual environment and cache
+/python-service/venv/
+/python-service/__pycache__/
+/python-service/chroma_db/
+
+# VS Code settings
+.vscode/
+
+# Build artifacts
+npm-debug.log
