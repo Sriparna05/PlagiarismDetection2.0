@@ -1,67 +1,60 @@
 document.addEventListener('DOMContentLoaded', () => {
-    const BACKEND_URL = 'http://localhost:3000';
-    const form = document.getElementById('plagiarismForm');
+    // This URL will be replaced during deployment. For local dev, it's correct.
+    const BACKEND_URL = 'http://localhost:3000'; 
+    
+    // --- Element Selectors ---
     const textInput = document.getElementById('textInput');
     const fileInput = document.getElementById('fileInput');
-    const resultsSection = document.getElementById('resultsSection');
-    const detailsContainer = document.getElementById('detailsContainer');
-    const highlightedTextContainer = document.getElementById('highlightedText');
-    const loadingDiv = document.getElementById('loading');
-    const errorMessageDiv = document.getElementById('errorMessage');
-
-    const corpusFileInput = document.getElementById('corpusFileInput');
-    const addCorpusBtn = document.getElementById('addCorpusBtn');
-    const corpusMessage = document.getElementById('corpusMessage');
+    const fileNameSpan = document.getElementById('fileName');
+    const checkButton = document.getElementById('checkButton');
+    const resetButton = document.getElementById('resetButton');
+    const mainCheckerCard = document.querySelector('.checker-card');
     
-    let plagiarismChart = null; // To hold the chart instance
+    const loadingState = document.getElementById('loading');
+    const resultsSection = document.getElementById('resultsSection');
+    const errorMessageDiv = document.getElementById('errorMessage');
+    
+    const highlightedTextContainer = document.getElementById('highlightedText');
+    const detailsContent = document.getElementById('detailsContent');
+    
+    let plagiarismChart = null;
 
-    addCorpusBtn.addEventListener('click', async () => {
-        if (corpusFileInput.files.length === 0) {
-            alert('Please select a file to add to the corpus.');
-            return;
-        }
-        const formData = new FormData();
-        formData.append('file', corpusFileInput.files[0]);
-        corpusMessage.textContent = 'Uploading and processing...';
-        corpusMessage.className = 'message';
-        try {
-            const response = await fetch(`${BACKEND_URL}/api/add-document`, {
-                method: 'POST',
-                body: formData,
-            });
-            const result = await response.json();
-            if (!response.ok) throw new Error(result.error || 'Failed to add document.');
-            corpusMessage.textContent = result.message;
-            corpusMessage.className = 'message success';
-            corpusFileInput.value = '';
-        } catch (error) {
-            corpusMessage.textContent = `Error: ${error.message}`;
-            corpusMessage.className = 'message error';
+    // --- Event Listeners ---
+    fileInput.addEventListener('change', () => {
+        if (fileInput.files.length > 0) {
+            fileNameSpan.textContent = fileInput.files[0].name;
+            textInput.disabled = true;
+            textInput.placeholder = 'File selected. Clear selection to use text input.';
+            textInput.value = '';
         }
     });
 
-    form.addEventListener('submit', async (e) => {
-        e.preventDefault();
+    checkButton.addEventListener('click', handleAnalysis);
+    resetButton.addEventListener('click', resetUI);
+
+    // --- Functions ---
+    async function handleAnalysis() {
         const text = textInput.value;
         const file = fileInput.files[0];
+
         if (!text.trim() && !file) {
-            alert('Please provide text or upload a file.');
+            showError("Please paste text or upload a file to analyze.");
             return;
         }
 
-        loadingDiv.classList.remove('hidden');
-        resultsSection.classList.add('hidden');
-        errorMessageDiv.classList.add('hidden');
+        const formData = new FormData();
+        if (file) {
+            formData.append('file', file);
+        } else {
+            // Backend expects 'text' field in a specific way for non-file uploads
+        }
+
+        showLoading();
 
         try {
             let response;
             if (file) {
-                const formData = new FormData();
-                formData.append('file', file);
-                response = await fetch(`${BACKEND_URL}/api/check`, {
-                    method: 'POST',
-                    body: formData,
-                });
+                response = await fetch(`${BACKEND_URL}/api/check`, { method: 'POST', body: formData });
             } else {
                 response = await fetch(`${BACKEND_URL}/api/check`, {
                     method: 'POST',
@@ -69,37 +62,67 @@ document.addEventListener('DOMContentLoaded', () => {
                     body: JSON.stringify({ text: text }),
                 });
             }
+
             const result = await response.json();
-            if (!response.ok) throw new Error(result.error || 'Analysis failed.');
+            if (!response.ok) {
+                throw new Error(result.error || 'An unknown error occurred during analysis.');
+            }
             
             displayResults(result);
 
         } catch (error) {
             showError(error.message);
-        } finally {
-            loadingDiv.classList.add('hidden');
+            resetUI();
         }
-    });
+    }
+
+    function showLoading() {
+        mainCheckerCard.classList.add('hidden');
+        resultsSection.classList.add('hidden');
+        errorMessageDiv.classList.add('hidden');
+        loadingState.classList.remove('hidden');
+    }
 
     function displayResults(data) {
+        loadingState.classList.add('hidden');
         resultsSection.classList.remove('hidden');
         
         renderChart(data.plagiarism_percentage, data.unique_percentage);
         renderHighlightedText(data.original_text, data.details);
         renderDetailedBreakdown(data.details);
-        
-        if (data.message) {
-             const warningDiv = document.createElement('div');
-             warningDiv.className = 'message'; // Style as a general message or new warning class
-             warningDiv.textContent = data.message;
-             detailsContainer.prepend(warningDiv);
-        }
     }
-    
+
+    function renderChart(plagiarized, unique) {
+        const ctx = document.getElementById('plagiarismChart').getContext('2d');
+        if (plagiarismChart) {
+            plagiarismChart.destroy();
+        }
+        plagiarismChart = new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: ['Plagiarized', 'Unique'],
+                datasets: [{
+                    data: [plagiarized, unique],
+                    backgroundColor: ['#ef4444', '#10b981'],
+                    borderColor: '#ffffff',
+                    borderWidth: 4,
+                    hoverOffset: 8
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                cutout: '70%',
+                plugins: {
+                    legend: { position: 'bottom', labels: { font: { size: 14 } } },
+                    title: { display: false }
+                }
+            }
+        });
+    }
+
     function renderHighlightedText(originalText, details) {
         const plagiarizedSentences = new Set(details.map(d => d.user_sentence));
-        
-        // Escape HTML to prevent XSS
         const escapedText = originalText.replace(/</g, "<").replace(/>/g, ">");
         
         let highlightedHtml = escapedText;
@@ -111,61 +134,48 @@ document.addEventListener('DOMContentLoaded', () => {
 
         highlightedTextContainer.innerHTML = highlightedHtml;
     }
-    
-    function escapeRegExp(string) {
-        return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // $& means the whole matched string
-    }
 
     function renderDetailedBreakdown(details) {
-        detailsContainer.innerHTML = ''; // Clear previous results
+        detailsContent.innerHTML = '';
         if (details.length === 0) {
-            detailsContainer.innerHTML = '<p>No potential plagiarism detected.</p>';
+            detailsContent.innerHTML = '<p>No potential plagiarism was detected in this document.</p>';
         } else {
             details.forEach(item => {
                 const detailItem = document.createElement('div');
                 detailItem.className = 'detail-item';
                 detailItem.innerHTML = `
-                    <p class="user-sentence">"<em>${item.user_sentence}</em>"</p>
+                    <p class="user-sentence">"${item.user_sentence}"</p>
                     <p class="source-info">
-                        Potential match found in <strong>${item.source}</strong> with 
-                        <span class="similarity-score">${item.similarity}% similarity.</span>
+                        <strong>Similarity Score:</strong> <span class="similarity-score">${item.similarity}%</span>
                     </p>
-                    <p><strong>Matched Sentence:</strong> ${item.matched_sentence}</p>
+                    <p><strong>Potential Source:</strong> ${item.source}</p>
+                    <p><strong>Matched Text:</strong> ${item.matched_sentence}</p>
                 `;
-                detailsContainer.appendChild(detailItem);
+                detailsContent.appendChild(detailItem);
             });
         }
     }
 
-    function renderChart(plagiarized, unique) {
-        const ctx = document.getElementById('plagiarismChart').getContext('2d');
-        if (plagiarismChart) {
-            plagiarismChart.destroy();
-        }
-        plagiarismChart = new Chart(ctx, {
-            type: 'pie',
-            data: {
-                labels: ['Plagiarized', 'Unique'],
-                datasets: [{
-                    data: [plagiarized, unique],
-                    backgroundColor: ['#ff4b5c', '#00c896'],
-                    borderColor: '#ffffff',
-                    borderWidth: 2,
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: { position: 'top' },
-                    title: { display: true, text: 'Plagiarism Analysis' }
-                }
-            }
-        });
+    function resetUI() {
+        mainCheckerCard.classList.remove('hidden');
+        resultsSection.classList.add('hidden');
+        loadingState.classList.add('hidden');
+        errorMessageDiv.classList.add('hidden');
+        
+        textInput.value = '';
+        fileInput.value = '';
+        fileNameSpan.textContent = '';
+        textInput.disabled = false;
+        textInput.placeholder = 'Paste your text here to check for plagiarism...';
     }
 
     function showError(message) {
-        errorMessageDiv.textContent = `Error: ${message}`;
+        errorMessageDiv.textContent = `⚠️ Error: ${message}`;
         errorMessageDiv.classList.remove('hidden');
+        loadingState.classList.add('hidden');
+    }
+
+    function escapeRegExp(string) {
+        return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     }
 });
