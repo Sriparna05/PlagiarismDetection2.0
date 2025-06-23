@@ -6,17 +6,18 @@ from flask_cors import CORS
 from sentence_transformers import SentenceTransformer
 from pypdf import PdfReader
 from docx import Document
+import atexit
 
 # --- Initialization ---
 app = Flask(__name__)
 CORS(app)  # Enable Cross-Origin Resource Sharing
 
-# Ensure the 'chroma_db' directory exists for persistent storage
-DB_PATH = "chroma_db"
-if not os.path.exists(DB_PATH):
-    os.makedirs(DB_PATH)
+# Use an in-memory ephemeral database for simplicity in deployment
+# This means the DB is rebuilt every time the server starts.
+client = chromadb.Client() 
+collection = client.get_or_create_collection(name="plagiarism_docs")
 
-# Load NLP model (spaCy for sentence splitting)
+# --- Model Loading ---
 print("Loading spaCy model...")
 try:
     nlp = spacy.load("en_core_web_sm")
@@ -26,66 +27,75 @@ except OSError:
     nlp = spacy.load("en_core_web_sm")
 print("spaCy model loaded.")
 
-# Load Sentence Transformer model
 print("Loading Sentence Transformer model...")
 model = SentenceTransformer('all-MiniLM-L6-v2')
 print("Sentence Transformer model loaded.")
 
-# Initialize ChromaDB client and collection
-client = chromadb.PersistentClient(path=DB_PATH)
-collection = client.get_or_create_collection(name="plagiarism_docs")
-
 # --- Helper Functions ---
-def extract_text(file_stream, file_name):
-    """Extracts text from various file types."""
+def extract_text(file_path):
+    """Extracts text from various file types by path."""
+    file_stream = open(file_path, 'rb')
+    file_name = os.path.basename(file_path)
     extension = os.path.splitext(file_name)[1].lower()
+    
+    text = ""
     if extension == '.pdf':
-        reader = PdfReader(file_stream)
-        return "".join(page.extract_text() for page in reader.pages)
+        try:
+            reader = PdfReader(file_stream)
+            text = "".join(page.extract_text() for page in reader.pages)
+        except Exception as e:
+            print(f"Error reading PDF {file_name}: {e}")
     elif extension == '.docx':
         doc = Document(file_stream)
-        return "\n".join(para.text for para in doc.paragraphs)
+        text = "\n".join(para.text for para in doc.paragraphs)
     elif extension == '.txt':
-        return file_stream.read().decode('utf-8')
-    return None
+        text = file_stream.read().decode('utf-8', errors='ignore')
+        
+    file_stream.close()
+    return text
 
 def preprocess_text(text):
     """Splits text into sentences using spaCy."""
     doc = nlp(text)
     return [sent.text.strip() for sent in doc.sents if len(sent.text.strip()) > 15]
 
-# --- API Endpoints ---
-@app.route('/add-document', methods=['POST'])
-def add_document():
-    """Endpoint to add a document to the vector database."""
-    if 'file' not in request.files:
-        return jsonify({"error": "No file part"}), 400
-    file = request.files['file']
-    if file.filename == '':
-        return jsonify({"error": "No selected file"}), 400
+def load_corpus():
+    """Loads all documents from the 'corpus_documents' folder into ChromaDB."""
+    corpus_folder = 'corpus_documents'
+    if not os.path.exists(corpus_folder):
+        print(f"Warning: Corpus directory '{corpus_folder}' not found. No documents will be loaded.")
+        return
 
-    try:
-        source_text = extract_text(file.stream, file.filename)
-        if not source_text:
-            return jsonify({"error": "Unsupported file type or empty file"}), 400
-        
-        sentences = preprocess_text(source_text)
-        if not sentences:
-            return jsonify({"error": "No content to process in the document"}), 400
-            
-        embeddings = model.encode(sentences).tolist()
-        doc_ids = [f"{file.filename}-{i}" for i in range(len(sentences))]
-        
-        collection.add(
-            embeddings=embeddings,
-            documents=sentences,
-            metadatas=[{"source": file.filename}] * len(sentences),
-            ids=doc_ids
-        )
-        return jsonify({"message": f"Successfully added '{file.filename}' to the corpus."}), 200
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    print("Loading documents from corpus...")
+    processed_files = 0
+    for filename in os.listdir(corpus_folder):
+        file_path = os.path.join(corpus_folder, filename)
+        if os.path.isfile(file_path):
+            try:
+                print(f"Processing: {filename}")
+                source_text = extract_text(file_path)
+                if not source_text:
+                    continue
 
+                sentences = preprocess_text(source_text)
+                if not sentences:
+                    continue
+                
+                # Generate unique IDs for each sentence
+                doc_ids = [f"{filename}-{i}" for i in range(len(sentences))]
+                
+                collection.add(
+                    documents=sentences,
+                    metadatas=[{"source": filename}] * len(sentences),
+                    ids=doc_ids
+                )
+                processed_files += 1
+            except Exception as e:
+                print(f"Failed to process {filename}: {e}")
+
+    print(f"Corpus loading complete. Processed {processed_files} documents. Total sentences in DB: {collection.count()}")
+
+# --- API Endpoint ---
 @app.route('/analyze', methods=['POST'])
 def analyze_text():
     """Endpoint to analyze text/file for plagiarism."""
@@ -93,10 +103,14 @@ def analyze_text():
     if 'file' in request.files:
         file = request.files['file']
         if file.filename:
+            # We need to save the file temporarily to use extract_text by path
+            temp_path = os.path.join("temp_uploads", file.filename)
+            os.makedirs("temp_uploads", exist_ok=True)
+            file.save(temp_path)
             try:
-                input_text = extract_text(file.stream, file.filename)
-            except Exception as e:
-                return jsonify({"error": f"Error processing file: {str(e)}"}), 500
+                input_text = extract_text(temp_path)
+            finally:
+                os.remove(temp_path) # Clean up temp file
     elif 'text' in request.json:
         input_text = request.json['text']
 
@@ -107,20 +121,20 @@ def analyze_text():
     if not user_sentences:
         return jsonify({"error": "Could not extract valid sentences from the input."}), 400
 
-    user_embeddings = model.encode(user_sentences)
-
-    plagiarized_count = 0
-    detailed_results = []
-    
     if collection.count() == 0:
         return jsonify({
             "plagiarism_percentage": 0,
             "unique_percentage": 100,
             "details": [],
             "original_text": input_text,
-            "message": "Warning: The document corpus is empty. Add documents for comparison."
+            "message": "Warning: The document corpus is empty. Analysis may be inaccurate."
         }), 200
+        
+    user_embeddings = model.encode(user_sentences)
 
+    plagiarized_count = 0
+    detailed_results = []
+    
     for i, sentence in enumerate(user_sentences):
         query_embedding = user_embeddings[i].tolist()
         
@@ -129,14 +143,12 @@ def analyze_text():
             n_results=1
         )
         
-        is_plagiarized = False
         if results['distances'] and results['distances'][0]:
             distance = results['distances'][0][0]
             similarity = 1 - distance
             
-            # THRESHOLD = 80%
+            # SIMILARITY THRESHOLD = 80%
             if similarity >= 0.80:
-                is_plagiarized = True
                 plagiarized_count += 1
                 matched_sentence = results['documents'][0][0]
                 source = results['metadatas'][0][0]['source']
@@ -157,6 +169,15 @@ def analyze_text():
         "original_text": input_text
     })
 
+# Cleanup temp_uploads folder on exit
+def cleanup_temp_folder():
+    if os.path.exists("temp_uploads"):
+        import shutil
+        shutil.rmtree("temp_uploads")
+        print("Cleaned up temp_uploads folder.")
+
+atexit.register(cleanup_temp_folder)
+
 if __name__ == '__main__':
-    print("Starting Flask server...")
+    load_corpus() # Load documents on startup
     app.run(host='0.0.0.0', port=5001, debug=True)
