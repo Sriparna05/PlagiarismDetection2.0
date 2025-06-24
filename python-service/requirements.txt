@@ -6,3 +6,4 @@ chromadb
 pypdf
 python-docx
 numpy
+gunicorn

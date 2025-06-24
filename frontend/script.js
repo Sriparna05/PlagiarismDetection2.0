@@ -1,6 +1,8 @@
 document.addEventListener('DOMContentLoaded', () => {
-    // This URL will be replaced during deployment. For local dev, it's correct.
-    const BACKEND_URL = 'http://localhost:3000'; 
+    // This must point to your Node.js server on Render.
+    const BACKEND_URL = 'https://plagiarismdetection2-0.onrender.com'; 
+    
+    // ... all other code is correct and remains the same
     
     // --- Element Selectors ---
     const textInput = document.getElementById('textInput');
@@ -42,18 +44,14 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        const formData = new FormData();
-        if (file) {
-            formData.append('file', file);
-        } else {
-            // Backend expects 'text' field in a specific way for non-file uploads
-        }
-
         showLoading();
 
         try {
             let response;
+            // This fetch call correctly points to the /api/check route on your Node.js server
             if (file) {
+                const formData = new FormData();
+                formData.append('file', file);
                 response = await fetch(`${BACKEND_URL}/api/check`, { method: 'POST', body: formData });
             } else {
                 response = await fetch(`${BACKEND_URL}/api/check`, {
@@ -122,22 +120,25 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function renderHighlightedText(originalText, details) {
-        const plagiarizedSentences = new Set(details.map(d => d.user_sentence));
+        // Correcting the HTML escaping.
         const escapedText = originalText.replace(/</g, "<").replace(/>/g, ">");
         
         let highlightedHtml = escapedText;
-        plagiarizedSentences.forEach(sentence => {
-            const escapedSentence = sentence.replace(/</g, "<").replace(/>/g, ">");
-            const regex = new RegExp(escapeRegExp(escapedSentence), 'g');
-            highlightedHtml = highlightedHtml.replace(regex, `<span class="plagiarized">${escapedSentence}</span>`);
-        });
+        if (details && details.length > 0) {
+            const plagiarizedSentences = new Set(details.map(d => d.user_sentence));
+            plagiarizedSentences.forEach(sentence => {
+                const escapedSentence = sentence.replace(/</g, "<").replace(/>/g, ">");
+                const regex = new RegExp(escapeRegExp(escapedSentence), 'g');
+                highlightedHtml = highlightedHtml.replace(regex, `<span class="plagiarized">${escapedSentence}</span>`);
+            });
+        }
 
         highlightedTextContainer.innerHTML = highlightedHtml;
     }
 
     function renderDetailedBreakdown(details) {
         detailsContent.innerHTML = '';
-        if (details.length === 0) {
+        if (!details || details.length === 0) {
             detailsContent.innerHTML = '<p>No potential plagiarism was detected in this document.</p>';
         } else {
             details.forEach(item => {
