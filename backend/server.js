@@ -31,22 +31,11 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage: storage });
 
-// =================================================================
-// THE CRITICAL CHANGE IS HERE
-// It will use the variable from Render's environment, 
-// OR fall back to your Hugging Face URL if the variable isn't set.
-// =================================================================
-const PYTHON_SERVICE_URL = process.env.PYTHON_SERVICE_URL || 'https://sriparna05-plagiarism-detection-api.hf.space';
-
-console.log(`Node backend is configured to forward requests to: ${PYTHON_SERVICE_URL}`);
+// Python service URL
+const PYTHON_SERVICE_URL = process.env.PYTHON_SERVICE_URL || 'http://127.0.0.1:5001';
 
 // Route to check for plagiarism
 app.post('/api/check', upload.single('file'), async (req, res) => {
-    // The Python service expects the endpoint to be /analyze
-    const analyzeUrl = `${PYTHON_SERVICE_URL}/analyze`;
-
-    console.log(`Forwarding request to: ${analyzeUrl}`);
-
     const filePath = req.file ? req.file.path : null;
     try {
         let response;
@@ -54,11 +43,11 @@ app.post('/api/check', upload.single('file'), async (req, res) => {
         if (req.file) {
             const form = new FormData();
             form.append('file', fs.createReadStream(filePath), req.file.originalname);
-            response = await axios.post(analyzeUrl, form, {
+            response = await axios.post(`${PYTHON_SERVICE_URL}/analyze`, form, {
                 headers: { ...form.getHeaders() }
             });
         } else if (req.body.text) {
-            response = await axios.post(analyzeUrl, {
+            response = await axios.post(`${PYTHON_SERVICE_URL}/analyze`, {
                 text: req.body.text
             }, {
                 headers: { 'Content-Type': 'application/json' }
@@ -70,7 +59,7 @@ app.post('/api/check', upload.single('file'), async (req, res) => {
         res.json(response.data);
 
     } catch (error) {
-        const errorMessage = error.response ? error.response.data.error || error.response.data : error.message;
+        const errorMessage = error.response ? error.response.data.error : error.message;
         console.error('Error communicating with Python service:', errorMessage);
         res.status(500).json({ error: 'An error occurred during analysis.', details: errorMessage });
     } finally {
